@@ -1,3 +1,4 @@
+#pragma once
 #ifndef WIENER_LINIEN_CPP
 #define WIENER_LINIEN_CPP
 #define ARDUINOJSON_DEFAULT_NESTING_LIMIT 100
@@ -6,8 +7,13 @@
 #include <vector>
 #include <algorithm>
 #include <unordered_map>
+#include <math.h>
+#include "DSP800.h"
 
 #include "ArduinoJson-v7.4.3.h"
+
+const String NOINFO = String("No Information");
+const String EMPTY = String("");
 
 class WienerLinienStation {
 public:
@@ -122,16 +128,35 @@ public:
         return stopidList;
     }
 
-    std::vector<String> redner(int length = 40, int time = 0){
-        std::vector<String> dp;
+
+
+    std::vector<char> render_into_system(int length, std::array<const String*, 3> info) {
+        
+        std::vector<char> result(length);
+        int index = 0;
+        std::vector<char> identifier = DSP800::to_character_table(*info[0]);
+        std::vector<char> detail = DSP800::to_character_table(*info[1]);
+        std::vector<char> timing = DSP800::to_character_table(*info[2]);
+        for(;index<identifier.size();){
+            result[index++] = identifier[index];
+        }
+        result[index++] = ' ';
+        for(int i = 0; i<min(detail.size(), length - identifier.size() - 2 - timing.size()); i++){
+            result[index++] = detail[i];
+        }
+        index = length - 1 - timing.size();
+        result[index++] = ' ';
+        for(int i = 0; i < timing.size(); i++){
+            result[index++] = timing[i];
+        }
+        return result;
+    }
+
+    std::vector<std::vector<char>> redner(int length = 40, int time = 0){
+        std::vector<std::vector<char>> dp;
         dp.reserve(stopidList.size()); 
         for(int stopid : stopidList){
-            if(!departures.contains(stopid) || departures[stopid].empty()) {dp.push_back(String("No information: ") + String(stopid));dp[dp.size()-1].concat("    "); dp[dp.size()-1].substring(0,20);continue;};
-            String s = (departures[stopid][0].lineName + String(" ") + departures[stopid][0].towards);
-            s.replace("ü", String(char(0x7d)));
-            s.replace("ö", String(char(0x7c)));
-            s.replace("ä", String(char(0x7b)));
-            s.replace("ß", String(char(0x7e)));
+            if(!departures.contains(stopid) || departures[stopid].empty()) {String stopidstring = String(stopid);dp.push_back(render_into_system(length/2, {&NOINFO, &EMPTY, &stopidstring}));continue;};
             
             int current_train = getCountdown(0,stopid);
             int next_train = getCountdown(1,stopid);
@@ -145,10 +170,7 @@ public:
                 info.concat(current_train);
             }
             info.concat(String(char(179)) + next_train);
-            s.concat("                    ");
-            s = s.substring(0, 20 - (info.length()));
-            s.concat(info);
-            dp.push_back(s);
+            dp.push_back(render_into_system(length/2,{&departures[stopid][0].lineName, &departures[stopid][0].towards, &info}));
         }
         sort(dp.begin(), dp.end());
         return dp;

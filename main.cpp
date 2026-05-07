@@ -1,3 +1,4 @@
+#pragma once
 #include <Arduino.h>
 #include "DSP800.h"
 #include "Wienerlinen.cpp"
@@ -7,9 +8,8 @@
 
 DSP800 DSP(Serial);
 WienerLinienStation Zip({4940, 4430, 4264});
-uint32_t ttime = 0;
 uint32_t star_flip = false;
-std::vector<String> dp;
+std::vector<std::vector<char>> dp;
 WiFiServer server(80);
 TaskHandle_t FetchTaskHandle = NULL;
 bool updating = false;
@@ -23,7 +23,6 @@ int get_num_length(int n){
     n /= 10;
   }
   return l;
-  ttime = millis() - 15'000;
 }
 
 void fetchData(void * paramter) {
@@ -34,12 +33,12 @@ void fetchData(void * paramter) {
     if(httpCode != HTTP_CODE_OK){
       DSP.clear();
       DSP.cursor_position(0);
-      DSP.print(http.errorToString(httpCode));
+      DSP.print(String(http.errorToString(httpCode)));
     } else {
       while(rendering) vTaskDelay(100 / portTICK_PERIOD_MS);
       updating = true;
       if(!Zip.parseResponse(http.getString())){
-        DSP.print("Error while Parsing json :(");
+        DSP.print(String("Error while Parsing json :("));
       }
       updating = false;
     }
@@ -55,11 +54,11 @@ void setup() {
   WiFi.begin("Science Pool Lidl", "Moebia31415");
 
   while (WiFi.status() != WL_CONNECTED) {
-    DSP.print('.');
+    DSP.print(String('.'));
     delay(300);
   }
   DSP.clear();
-  DSP.print("Connected");
+  DSP.print(String("Connected"));
   DSP.setLanguage(DSP800::GERMANY);
 
   delay(5000);
@@ -92,7 +91,6 @@ void loop() {
     }
   }
 
-  //DSP.clear();
   DSP.cursor_position(0);
   DSP.print(dp[(star_flip/10)%dp.size()]);
   DSP.print(dp[(1+(star_flip/10))%dp.size()]);
