@@ -1,12 +1,12 @@
 #include <Arduino.h>
-#include <DSP800.h>
-#include <Wienerlinen.cpp>
+#include "DSP800.h"
+#include "Wienerlinen.cpp"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <array>
 
 DSP800 DSP(Serial);
-WienerLinienStation Zip({4940, 4430, 665, 2038, 3874, 797});
+WienerLinienStation Zip({4940, 4430, 4264});
 uint32_t ttime = 0;
 uint32_t star_flip = false;
 std::vector<String> dp;

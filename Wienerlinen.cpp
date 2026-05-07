@@ -131,6 +131,7 @@ public:
             s.replace("ü", String(char(0x7d)));
             s.replace("ö", String(char(0x7c)));
             s.replace("ä", String(char(0x7b)));
+            s.replace("ß", String(char(0x7e)));
             
             int current_train = getCountdown(0,stopid);
             int next_train = getCountdown(1,stopid);
