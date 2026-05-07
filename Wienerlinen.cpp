@@ -152,9 +152,10 @@ public:
         return result;
     }
 
-    std::vector<std::vector<char>> redner(int length = 40, int time = 0){
+    std::pair<std::vector<std::vector<char>>,bool> redner(int length = 40, int time = 0){
+        bool no_info_banner = false;
         std::vector<std::vector<char>> dp;
-        dp.reserve(stopidList.size()); 
+        dp.reserve(stopidList.size()+1); 
         for(int stopid : stopidList){
             if(!departures.contains(stopid) || departures[stopid].empty()) {String stopidstring = String(stopid);dp.push_back(render_into_system(length/2, {&NOINFO, &EMPTY, &stopidstring}));continue;};
             
@@ -166,14 +167,20 @@ public:
                 VehicleType vt = getType(0, stopid);
                 if(vt == PTTRAM || vt == PTBUSCITY) info.concat((time%2 ==0)? char(220) : char(223));
                 else info.concat(((time/2)%2 ==0)? "* " : " *");
+            } else if (current_train == -1) {
+                no_info_banner = true;
+                continue;
             } else {
                 info.concat(current_train);
             }
-            info.concat(String(char(179)) + next_train);
+            if(next_train != -1){
+                info.concat(String(char(179)) + next_train);
+            }
             dp.push_back(render_into_system(length/2,{&departures[stopid][0].lineName, &departures[stopid][0].towards, &info}));
         }
         sort(dp.begin(), dp.end());
-        return dp;
+        if(no_info_banner) dp.push_back({'E','1'});        
+        return {dp,no_info_banner};
     }
 
     void debug() {

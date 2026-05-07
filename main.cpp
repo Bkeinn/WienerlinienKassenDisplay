@@ -5,9 +5,10 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <array>
+#include <tuple>
 
 DSP800 DSP(Serial);
-WienerLinienStation Zip({4940, 4430, 4264});
+WienerLinienStation Zip({4940, 4430, 4264, 12345});
 uint32_t star_flip = false;
 std::vector<std::vector<char>> dp;
 WiFiServer server(80);
@@ -79,7 +80,8 @@ void setup() {
 void loop() {
   while(updating) delay(100);
   rendering = true;
-  dp = Zip.redner(40,star_flip);
+  bool no_info = false;
+  std::tie(dp, no_info) = Zip.redner(40,star_flip);
   rendering = false;
 
   WiFiClient client = server.available();
@@ -94,6 +96,12 @@ void loop() {
   DSP.cursor_position(0);
   DSP.print(dp[(star_flip/10)%dp.size()]);
   DSP.print(dp[(1+(star_flip/10))%dp.size()]);
+  if(no_info && (1+(star_flip/10))%dp.size() == dp.size()-1){
+    DSP.cursor_position(0);
+    DSP.print("Teilweise keine");
+    DSP.cursor_position(20);
+    DSP.print("Echtzeitinfos");
+  }
 
   
   star_flip++;
