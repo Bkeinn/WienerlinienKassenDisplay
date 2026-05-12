@@ -73,6 +73,7 @@ void setup() {
     &FetchTaskHandle,
     0                   /* Core 0 (WiFi usually runs here, loop runs on 1) */
   );
+  DSP.clear();
 }
 
 
@@ -93,13 +94,14 @@ void loop() {
     }
   }
 
-  DSP.cursor_position(0);
+  //DSP.cursor_position(0);
   if(dp.size() == 0 || (no_info && (1+(star_flip/10))%dp.size() == dp.size()-1)){
-    DSP.print("Teilweise keine     ");
-    DSP.print("Echtzeitinfos       ");
+    DSP.update(DSP800::DSP800::to_length_array(String("Teilweise keine     ")));
+    DSP.update(DSP800::DSP800::to_length_array(String("Echtzeitinfos       ")));
   } else {
-    DSP.print(dp[(star_flip/10)%dp.size()]);
-    DSP.print(dp[(1+(star_flip/10))%dp.size()]); 
+    if((star_flip/10) != ((star_flip-1)/10)) DSP.clear();
+    DSP.update(dp[(star_flip/10)%dp.size()]);
+    DSP.update(dp[(1+(star_flip/10))%dp.size()]); 
   }
 
   

@@ -25,7 +25,9 @@ class DSP800 {
             UK,
         };
 
-        DSP800(HardwareSerial &SerialPort) : SerialPort(SerialPort) {}
+        DSP800(HardwareSerial &SerialPort) : SerialPort(SerialPort) {
+            buffer.fill(' ');
+        }
 
         int setLanguage(Language l){
             byte buf[] = {0x04, 0x01, 0x49, 0x00, 0x17};
@@ -45,6 +47,7 @@ class DSP800 {
             byte buf[] = {0x04, 0x01,0x43,0x31 + start,0x31+end,0x17};
             SerialPort.write(buf,6);
             cursor = 0;
+            buffer.fill(' ');
             return 0;
         }
 
@@ -84,49 +87,57 @@ class DSP800 {
             return 0;
         }
 
-        static std::vector<char> to_character_table(const String& str){
-            std::vector<char> result;
-            result.reserve(str.length());
-            for (size_t i = 0; i < str.length(); i++) {
-                unsigned char c = str[i];
-                if (c == 0xC3 && i + 1 < str.length()) {
-                    i++;
-                    switch ((unsigned char)str[i]) {
-                        case 0xBC: result.push_back((char)0x7D); break; // ü
-                        case 0xB6: result.push_back((char)0x7C); break; // ö
-                        case 0xA4: result.push_back((char)0x7B); break; // ä
-                        case 0x9F: result.push_back((char)0x7E); break; // ß
+        static char to_character_table(const String& str, int &index){
+            if (str.charAt(index) == 0xC3 && index + 1 < str.length()) {
+                    index++;
+                    switch ((unsigned char)str[index]) {
+                        case 0xBC: return (char)0x7D; // ü
+                        case 0xB6: return (char)0x7C; // ö
+                        case 0xA4: return (char)0x7B; // ä
+                        case 0x9F: return (char)0x7E; // ß
                         default:
-                            result.push_back((char)0xC3);
-                            result.push_back(str[i]);
-                            break;
+                            index--;
+                            return (char)0xC3;
                     }
-                } else {
-                    result.push_back((char)c);
                 }
-            }
-            return result;
+            return str.charAt(index);
         }
 
-        void print(std::array<char, LENGTH>& c){
+        static std::pair<std::array<char, LENGTH>, size_t> to_length_array_variable(const String& str) {
+            int count = 0;
+            std::array<char, LENGTH> result;
+            for(int i = 0; i < min<int>(LENGTH, str.length()); i++){ 
+                result[i] = to_character_table(str, i);
+                count++;
+            }
+            return {result, count};
+        }
+
+        static std::array<char, LENGTH> to_length_array(const String& str){
+            return to_length_array_variable(str).first;
+        }
+
+        void print(const std::array<char, LENGTH>& c){
             for(auto ch : c){
                 buffer[cursor++%40]=ch;
                 SerialPort.print(ch);
             }
+            cursor%=LENGTH*ROW;
         }
 
         void update(const std::array<char, LENGTH>& c){
   
             for(auto ch : c){
-                if(buffer[cursor%LENGTH] != ch){
-                    buffer[cursor%LENGTH] = ch;
+                if(buffer[cursor%(LENGTH*ROW)] != ch){
+                    buffer[cursor%(LENGTH*ROW)] = ch;
                     cursor_position(cursor);
                     print(ch, 1);
                 } else {
-                    cursor++;
+                    cursor = (cursor+1) % (LENGTH * ROW);
                 }
             }
-            cursor_position(cursor);
+
+            //cursor_position(cursor);
         }
 
         void print(String val){
