@@ -8,7 +8,7 @@
 #include <tuple>
 
 DSP800::DSP800 DSP(Serial);
-WienerLinienStation Zip({4940, 4430, 4264, 12345});
+WienerLinienStation Zip({4940, 4430, 4264});
 uint32_t star_flip = false;
 std::vector<std::array<char, DSP800::LENGTH>> dp;
 WiFiServer server(80);

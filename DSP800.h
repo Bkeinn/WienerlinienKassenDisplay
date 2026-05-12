@@ -107,7 +107,7 @@ class DSP800 {
             int count = 0;
             std::array<char, LENGTH> result;
             for(int i = 0; i < min<int>(LENGTH, str.length()); i++){ 
-                result[i] = to_character_table(str, i);
+                result[count] = to_character_table(str, i);
                 count++;
             }
             return {result, count};
