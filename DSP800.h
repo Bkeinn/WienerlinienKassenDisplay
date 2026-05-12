@@ -141,12 +141,14 @@ class DSP800 {
         }
 
         void print(String val){
+            cursor_position(cursor)
             SerialPort.print(val);
             cursor = (cursor + val.length())%40;
         }
         
         template <typename T>
         void print(T val, size_t length) {
+            cursor_position(cursor)
             SerialPort.print(val);
             cursor = (cursor + length)%40;
         }
