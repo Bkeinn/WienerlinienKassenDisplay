@@ -7,10 +7,10 @@
 #include <array>
 #include <tuple>
 
-DSP800 DSP(Serial);
+DSP800::DSP800 DSP(Serial);
 WienerLinienStation Zip({4940, 4430, 4264, 12345});
 uint32_t star_flip = false;
-std::vector<std::vector<char>> dp;
+std::vector<std::array<char, DSP800::LENGTH>> dp;
 WiFiServer server(80);
 TaskHandle_t FetchTaskHandle = NULL;
 bool updating = false;
@@ -36,7 +36,7 @@ void fetchData(void * paramter) {
       DSP.cursor_position(0);
       DSP.print(String(http.errorToString(httpCode)));
     } else {
-      while(rendering) vTaskDelay(100 / portTICK_PERIOD_MS);
+      while(rendering) vTaskDelay((portTICK_PERIOD_MS != 0)? 100 / portTICK_PERIOD_MS : 0);
       updating = true;
       if(!Zip.parseResponse(http.getString())){
         DSP.print(String("Error while Parsing json :("));
@@ -44,7 +44,7 @@ void fetchData(void * paramter) {
       updating = false;
     }
     http.end();
-    vTaskDelay(15000 / portTICK_PERIOD_MS);
+    vTaskDelay((portTICK_PERIOD_MS != 0)? 15000 / portTICK_PERIOD_MS : 0);
   }
 }
 
@@ -60,7 +60,7 @@ void setup() {
   }
   DSP.clear();
   DSP.print(String("Connected"));
-  DSP.setLanguage(DSP800::GERMANY);
+  DSP.setLanguage(DSP800::DSP800::GERMANY);
 
   delay(5000);
 
@@ -81,7 +81,7 @@ void loop() {
   while(updating) delay(100);
   rendering = true;
   bool no_info = false;
-  std::tie(dp, no_info) = Zip.redner(40,star_flip);
+  std::tie(dp, no_info) = Zip.redner(star_flip);
   rendering = false;
 
   WiFiClient client = server.available();
@@ -94,13 +94,12 @@ void loop() {
   }
 
   DSP.cursor_position(0);
-  DSP.print(dp[(star_flip/10)%dp.size()]);
-  DSP.print(dp[(1+(star_flip/10))%dp.size()]);
-  if(no_info && (1+(star_flip/10))%dp.size() == dp.size()-1){
-    DSP.cursor_position(0);
-    DSP.print("Teilweise keine");
-    DSP.cursor_position(20);
-    DSP.print("Echtzeitinfos");
+  if(dp.size() == 0 || (no_info && (1+(star_flip/10))%dp.size() == dp.size()-1)){
+    DSP.print("Teilweise keine     ");
+    DSP.print("Echtzeitinfos       ");
+  } else {
+    DSP.print(dp[(star_flip/10)%dp.size()]);
+    DSP.print(dp[(1+(star_flip/10))%dp.size()]); 
   }
 
   

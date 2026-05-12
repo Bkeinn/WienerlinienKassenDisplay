@@ -13,8 +13,7 @@
 #include "ArduinoJson-v7.4.3.h"
 
 const String NOINFO = String("No Information");
-const String EMPTY = String("");
-
+const String EMPTY = String("");    
 class WienerLinienStation {
 public:
     enum VehicleType {
@@ -130,21 +129,22 @@ public:
 
 
 
-    std::vector<char> render_into_system(int length, std::array<const String*, 3> info) {
+    std::array<char, DSP800::LENGTH> render_into_system(std::array<const String*, 3> info) {
         
-        std::vector<char> result(length);
+        std::array<char, DSP800::LENGTH> result;
+        result.fill(' ');
         int index = 0;
-        std::vector<char> identifier = DSP800::to_character_table(*info[0]);
-        std::vector<char> detail = DSP800::to_character_table(*info[1]);
-        std::vector<char> timing = DSP800::to_character_table(*info[2]);
+        std::vector<char> identifier = DSP800::DSP800::to_character_table(*info[0]);
+        std::vector<char> detail = DSP800::DSP800::to_character_table(*info[1]);
+        std::vector<char> timing = DSP800::DSP800::to_character_table(*info[2]);
         for(;index<identifier.size();){
             result[index++] = identifier[index];
         }
         result[index++] = ' ';
-        for(int i = 0; i<min(detail.size(), length - identifier.size() - 2 - timing.size()); i++){
+        for(int i = 0; i<min(detail.size(), DSP800::LENGTH - identifier.size() - 2 - timing.size()); i++){
             result[index++] = detail[i];
         }
-        index = length - 1 - timing.size();
+        index = DSP800::LENGTH - 1 - timing.size();
         result[index++] = ' ';
         for(int i = 0; i < timing.size(); i++){
             result[index++] = timing[i];
@@ -152,13 +152,13 @@ public:
         return result;
     }
 
-    std::pair<std::vector<std::vector<char>>,bool> redner(int length = 40, int time = 0){
+    std::pair<std::vector<std::array<char, DSP800::LENGTH>>,bool> redner(int time = 0){
         bool no_info_banner = false;
-        std::vector<std::vector<char>> dp;
+        std::vector<std::array<char, DSP800::LENGTH>> dp;
         dp.reserve(stopidList.size()+1); 
         for(int stopid : stopidList){
-            if(!departures.contains(stopid) || departures[stopid].empty()) {String stopidstring = String(stopid);dp.push_back(render_into_system(length/2, {&NOINFO, &EMPTY, &stopidstring}));continue;};
-            
+            //if(!departures.contains(stopid) || departures[stopid].empty()) {String stopidstring = String(stopid);dp.push_back(render_into_system(length/2, {&NOINFO, &EMPTY, &stopidstring}));continue;};
+            if(!departures.contains(stopid) || departures[stopid].empty()) {no_info_banner = true;continue;};
             int current_train = getCountdown(0,stopid);
             int next_train = getCountdown(1,stopid);
             String info = " ";
@@ -176,10 +176,9 @@ public:
             if(next_train != -1){
                 info.concat(String(char(179)) + next_train);
             }
-            dp.push_back(render_into_system(length/2,{&departures[stopid][0].lineName, &departures[stopid][0].towards, &info}));
+            dp.push_back(render_into_system({&departures[stopid][0].lineName, &departures[stopid][0].towards, &info}));
         }
         sort(dp.begin(), dp.end());
-        if(no_info_banner) dp.push_back({'E','1'});        
         return {dp,no_info_banner};
     }
 

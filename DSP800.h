@@ -3,6 +3,11 @@
 #include <string>
 #include <array>
 
+namespace DSP800 {
+    inline constexpr int LENGTH = 20;
+    inline constexpr int ROW = 2;
+
+
 class DSP800 {
     private:
         HardwareSerial &SerialPort;
@@ -103,18 +108,18 @@ class DSP800 {
             return result;
         }
 
-        void print(std::vector<char>& c){
+        void print(std::array<char, LENGTH>& c){
             for(auto ch : c){
                 buffer[cursor++%40]=ch;
                 SerialPort.print(ch);
             }
         }
 
-        void update(const std::vector<char>& c){
+        void update(const std::array<char, LENGTH>& c){
   
             for(auto ch : c){
-                if(buffer[cursor%40] != ch){
-                    buffer[cursor%40] = ch;
+                if(buffer[cursor%LENGTH] != ch){
+                    buffer[cursor%LENGTH] = ch;
                     cursor_position(cursor);
                     print(ch, 1);
                 } else {
@@ -136,3 +141,5 @@ class DSP800 {
         }
 
 };
+
+}
