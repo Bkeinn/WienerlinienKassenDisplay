@@ -30,6 +30,8 @@ public:
         int stopid;
         int countdown;
     };
+
+    std::vector<int> stopidList;
     
 
     WienerLinienStation(const std::vector<int> stopid) 
@@ -45,49 +47,62 @@ public:
     }
 
     bool parseResponse(const String& json) {
-        
+        JsonDocument filter;
+        filter["data"]["monitors"][0]["lines"][0]["name"] = true;
+        filter["data"]["monitors"][0]["lines"][0]["towards"] = true;
+        filter["data"]["monitors"][0]["lines"][0]["type"] = true;
+        filter["data"]["monitors"][0]["lines"][0]["departures"]["departure"][0]["departureTime"]["countdown"] = true;
+
         JsonDocument doc; 
-        DeserializationError error = deserializeJson(doc, json);
+
+        DeserializationError error = deserializeJson(doc, json, DeserializationOption::Filter(filter));
+
         if (error) {
-            //std::cout << "Error: " << error << std::endl;
-            //Serial.print(error.c_str());
+            Serial.print(F("deserializeJson() failed: "));
+            Serial.println(error.c_str());
             return false;
         }
+
         departures.clear();
 
         JsonArray monitors = doc["data"]["monitors"];
-        // for (JsonObject monitor : monitors) {
-        for(int i = 0; i<monitors.size();i++){
+        for (int i = 0; i < monitors.size(); i++) {
             JsonArray lines = monitors[i]["lines"];
             for (JsonObject line : lines) {
                 String lineName = line["name"] | "Unknown";
                 String towards = line["towards"] | "Unknown";
+
                 VehicleType type = UNKNOWN;
-                if(line["type"] == "ptTram"){
-                    type = PTTRAM;
-                } else if(line["type"] == "ptMetro"){
-                    type = PTMETRO;
-                } else if(line["type"] == "ptBusCity"){
-                    type = PTBUSCITY;
+                const char* typeStr = line["type"];
+                if (typeStr) {
+                    if (strcmp(typeStr, "ptTram") == 0) type = PTTRAM;
+                    else if (strcmp(typeStr, "ptMetro") == 0) type = PTMETRO;
+                    else if (strcmp(typeStr, "ptBusCity") == 0) type = PTBUSCITY;
                 }
-                
+
                 JsonArray lineDepartures = line["departures"]["departure"];
                 for (JsonObject dep : lineDepartures) {
-                        Departure d;
-                        d.lineName = lineName;
-                        d.towards = towards;
-                        d.type = type;
-                        d.countdown = dep["departureTime"]["countdown"] | 999; // If it takes really long it has no countdown and I suppose there will always be a faster train/bus than 999
+                    Departure d;
+                    d.lineName = lineName;
+                    d.towards = towards;
+                    d.type = type;
+                    d.countdown = dep["departureTime"]["countdown"] | 999;
+
+                    if (i < stopidList.size()) {
                         d.stopid = stopidList[i];
                         departures[stopidList[i]].push_back(d);
+                    }
                 }
             }
         }
 
-        for(auto& Stations : departures){
-          std::sort(Stations.second.begin(), Stations.second.end(), [](const Departure& a, const Departure& b) {
-              return a.countdown < b.countdown;
-          });
+
+        for (auto& stationEntry : departures) {
+            std::sort(stationEntry.second.begin(), stationEntry.second.end(), 
+                [](const Departure& a, const Departure& b) {
+                    return a.countdown < b.countdown;
+                }
+            );
         }
 
         return true;
@@ -197,7 +212,6 @@ public:
     }
 
 private:
-    std::vector<int> stopidList;
     // Stopid to departures
     std::unordered_map<int, std::vector<Departure>> departures;
 };
