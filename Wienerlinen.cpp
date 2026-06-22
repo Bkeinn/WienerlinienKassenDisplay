@@ -32,6 +32,8 @@ public:
     };
 
     std::vector<int> stopidList;
+    std::vector<int> stopidActive;
+    std::vector<int> stopidInactive;
     
 
     WienerLinienStation(const std::vector<int> stopid) 
@@ -143,64 +145,82 @@ public:
         return stopidList;
     }
 
-
-
-        std::array<char, DSP800::LENGTH> render_into_system(std::array<const String*, 3> info) {
-            
-            std::array<char, DSP800::LENGTH> result;
-            result.fill(' ');
-            int index = 0;
-            auto [identifier, identifier_length] = DSP800::DSP800::to_length_array_variable(*info[0]);
-            auto [detail, detail_length] = DSP800::DSP800::to_length_array_variable(*info[1]);
-            auto [timing, timing_length] = DSP800::DSP800::to_length_array_variable(*info[2]);
-            for(;index<min<int>(identifier_length, DSP800::LENGTH - 1); index++){
-                result[index] = identifier[index];
-            }
-            result[index++] = ' ';
-            for(int i = 0; i<min(detail_length, DSP800::LENGTH - identifier_length - 2 - timing_length); i++){
-                result[index++] = detail[i];
-            }
-            index = max<int>(DSP800::LENGTH - 1 - timing_length,0);
-            result[index++] = ' ';
-            for(int i = 0; i < timing_length; i++){
-                result[index++] = timing[i];
-            }
-            return result;
+    void partition_stopids(){
+        stopidActive.clear();
+        stopidInactive.clear();
+        for(int stopid : stopidList){
+            if(!departures.contains(stopid) || departures[stopid].empty() || getCountdown(0,stopid) == -1) stopidInactive.push_back(stopid);
+            else stopidActive.push_back(stopid);
         }
+    }
 
-        std::pair<std::vector<std::array<char, DSP800::LENGTH>>,bool> redner(int time = 0){
-            bool no_info_banner = false;
-            std::vector<std::array<char, DSP800::LENGTH>> dp;
-            dp.reserve(stopidList.size()+1);
-            for(int stopid : stopidList){
-                //if(!departures.contains(stopid) || departures[stopid].empty()) {String stopidstring = String(stopid);dp.push_back(render_into_system(length/2, {&NOINFO, &EMPTY, &stopidstring}));continue;};
-                if(!departures.contains(stopid) || departures[stopid].empty()) {no_info_banner = true;continue;};
-                int current_train = getCountdown(0,stopid);
-                int next_train = getCountdown(1,stopid);
-                String info = " ";
-                if(current_train == 0){
-                    VehicleType vt = getType(0, stopid);
-                    if(vt == PTTRAM || vt == PTBUSCITY) info.concat((time%2 ==0)? char(220) : char(223));
-                    else info.concat(((time/2)%2 ==0)? "* " : " *");
-                } else if (current_train == -1) {
-                    no_info_banner = true;
-                    continue;
-                } else {
-                    info.concat(current_train);
-                }
-                if(next_train != -1){
-                    info.concat(String(char(179)) + next_train);
-                }
-                dp.push_back(render_into_system({&departures[stopid][0].lineName, &departures[stopid][0].towards, &info}));
-            }
-            sort(dp.begin(), dp.end());
-            return {dp,no_info_banner};
+    std::array<char, DSP800::LENGTH> render_into_system(std::array<const String*, 3> info) {
+        
+        std::array<char, DSP800::LENGTH> result;
+        result.fill(' ');
+        int index = 0;
+        auto [identifier, identifier_length] = DSP800::DSP800::to_length_array_variable(*info[0]);
+        auto [detail, detail_length] = DSP800::DSP800::to_length_array_variable(*info[1]);
+        auto [timing, timing_length] = DSP800::DSP800::to_length_array_variable(*info[2]);
+        for(;index<min<int>(identifier_length, DSP800::LENGTH - 1); index++){
+            result[index] = identifier[index];
         }
+        result[index++] = ' ';
+        for(int i = 0; i<min(detail_length, DSP800::LENGTH - identifier_length - 2 - timing_length); i++){
+            result[index++] = detail[i];
+        }
+        index = max<int>(DSP800::LENGTH - 1 - timing_length,0);
+        result[index++] = ' ';
+        for(int i = 0; i < timing_length; i++){
+            result[index++] = timing[i];
+        }
+        return result;
+    }
+
+    int redner_active(int time, std::vector<std::array<char, DSP800::LENGTH>> &dp){
+        dp.resize(0);
+        partition_stopids();
+        dp.reserve(stopidActive.size()+1);
+        for(int stopid : stopidActive){
+            int current_train = getCountdown(0,stopid);
+            int next_train = getCountdown(1,stopid);
+            String info = " ";
+            if(current_train == 0){
+                VehicleType vt = getType(0, stopid);
+                if(vt == PTTRAM || vt == PTBUSCITY) info.concat((time%2 ==0)? char(220) : char(223));
+                else info.concat(((time/2)%2 ==0)? "* " : " *");
+            } else {
+                info.concat(current_train);
+            }
+            if(next_train != -1){
+                info.concat(String(char(179)) + next_train);
+            }
+            dp.push_back(render_into_system({&departures[stopid][0].lineName, &departures[stopid][0].towards, &info}));
+        }
+        sort(dp.begin(), dp.end());
+        return 0;
+    }
+
+    int redner_inactive(std::vector<std::array<char, DSP800::LENGTH>> &dp, std::array<char, DSP800::LENGTH> ipa) {
+        dp.resize(0);
+        partition_stopids();
+        dp.reserve(stopidInactive.size()+1);
+        dp.push_back(ipa);
+        auto [info, info_length] = DSP800::DSP800::to_length_array_variable(String("Kein Info für:"));
+        for(int stopid : stopidInactive){
+            auto [line, length] = DSP800::DSP800::to_length_array_variable(String(stopid));
+            std::copy(line.begin(), line.begin()+length, line.end()-length-1);
+            std::copy(info.begin(), info.begin()+info_length, line.begin());
+            dp.push_back(line);
+        }
+        return 0;
+    }   
 
     void debug() {
         Serial.print("Debug: \n");
         for(auto a : departures){
-            Serial.print(a.first + "\n\t");
+            Serial.print(a.first);
+            Serial.print("\n\t");
             for(Departure b : a.second){
                 Serial.print(b.lineName.c_str());
                 Serial.print("-");
@@ -210,6 +230,7 @@ public:
         }
         Serial.println();
     }
+
 
 private:
     // Stopid to departures

@@ -24,7 +24,7 @@ std::mutex mutex;
 std::vector<std::array<char, DSP800::LENGTH>> dp;
 WebServer server(80);
 TaskHandle_t FetchTaskHandle = NULL;
-bool configuration_mode = false;
+std::pair<bool, bool> configuration_mode = {false,false};
 unsigned long last_update = millis();
 
 int get_num_length(int n){
@@ -38,10 +38,11 @@ int get_num_length(int n){
 }
 
 void fetchData(void * paramter) {
+  HTTPClient http;
+  http.useHTTP10(true);
+  http.setTimeout(10000);
+  
   while(true){
-    HTTPClient http;
-    http.useHTTP10(true);
-    http.setTimeout(10000);
     http.begin(Zip.getQueryUrl().c_str());
     int httpCode = http.GET();
     if(httpCode != HTTP_CODE_OK){
@@ -49,10 +50,6 @@ void fetchData(void * paramter) {
       Serial.println(String(http.errorToString(httpCode)));
     } else {
       while(!mutex.try_lock()) vTaskDelay((portTICK_PERIOD_MS != 0)? 100 / portTICK_PERIOD_MS : 0);
-      //mutex.lock();
-      //Serial.println(http.getString());
-      //WiFiClient * stream = http.getStreamPtr();
-      //stream->setTimeout(1000);
       if(!Zip.parseResponse(http.getString())){
         Serial1.println(String("Error while Parsing json :("));
       }
@@ -107,36 +104,40 @@ void setup() {
 
 void loop() {
   server.handleClient();
-  if(!configuration_mode) {
-    bool no_info = false;
+  if(!configuration_mode.first) {
     
     if(mutex.try_lock()){
-      std::tie(dp, no_info) = Zip.redner(star_flip.first);
+      Zip.redner_active(star_flip.first, dp);
       mutex.unlock();
     }
-    
-    if(star_flip.first != star_flip.second){
-      if(dp.size() == 0 || (no_info && (1+(star_flip.first/10))%dp.size() == dp.size()-1)){
-        DSP.update(DSP800::DSP800::to_length_array(String("Teilweise keine     ")));
-        DSP.update(DSP800::DSP800::to_length_array(String("Echtzeitinfos       ")));
-      } else {
-        if((star_flip.first/10) != ((star_flip.first-1)/10)) DSP.clear();
-        DSP.update(dp[(star_flip.first/10)%dp.size()]);
-        DSP.update(dp[(1+(star_flip.first/10))%dp.size()]); 
-      }
-      star_flip.second = star_flip.first;
+
+    if (digitalRead(GreenButton) && !lastGreenState) configuration_mode.first = true;
+  } else if(configuration_mode.first){
+    if(mutex.try_lock()){
+      Zip.redner_inactive(dp, DSP800::DSP800::to_length_array(WiFi.localIP().toString()));
+      mutex.unlock();
     }
-    
-    if (digitalRead(GreenButton) && !lastGreenState) configuration_mode = true;
-    lastGreenState = digitalRead(GreenButton);
-    if (digitalRead(RedButton) && !lastRedState) star_flip.first += 10;
-    lastRedState = digitalRead(RedButton);
-    if(millis() - last_update >= 1'000) {star_flip.first++; last_update = millis();};
-  } else if(configuration_mode){
-    DSP.update(DSP800::DSP800::to_length_array(WiFi.localIP().toString()));
-    DSP.cursor_position(0);
-    if (digitalRead(GreenButton) && !lastGreenState) configuration_mode = false;
-    lastGreenState = digitalRead(GreenButton); 
+    if (digitalRead(GreenButton) && !lastGreenState) configuration_mode.first = false;
   }
+
+  lastGreenState = digitalRead(GreenButton); 
+
+  if (digitalRead(RedButton) && !lastRedState) star_flip.first += 10;
+  lastRedState = digitalRead(RedButton);
+
+  if(millis() - last_update >= 1'000) {star_flip.first++; last_update = millis();};
+
+  if(star_flip.first != star_flip.second || configuration_mode.first != configuration_mode.second)[[unlikely]]{
+    if(dp.size() == 0){
+      configuration_mode.first = true;
+    } else [[likely]] {
+      if((star_flip.first/10) != ((star_flip.first-1)/10)) DSP.clear();
+      DSP.update(dp[(star_flip.first/10)%dp.size()]);
+      DSP.update(dp[(1+(star_flip.first/10))%dp.size()]); 
+    }
+    configuration_mode.second = configuration_mode.first;
+    star_flip.second = star_flip.first;
+  }
+
   delay(50);
 }

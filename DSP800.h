@@ -106,6 +106,7 @@ class DSP800 {
         static std::pair<std::array<char, LENGTH>, size_t> to_length_array_variable(const String& str) {
             int count = 0;
             std::array<char, LENGTH> result;
+            result.fill(' ');
             for(int i = 0; i < min<int>(LENGTH, str.length()); i++){ 
                 result[count] = to_character_table(str, i);
                 count++;
