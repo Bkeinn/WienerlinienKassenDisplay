@@ -17,6 +17,28 @@ const String NOINFO = String("No Information");
 const String EMPTY = String("");    
 class WienerLinienStation {
 public:
+    struct LineStop {
+        int stopid;
+        int linecode = -1;
+        std::array<char, 3> name;
+
+        LineStop() : stopid(-1), name{'\0', '\0', '\0'} {};
+
+        LineStop(int stopid_v, const String& s) {
+            stopid = stopid_v;
+            for (size_t i = 0; i < name.size(); ++i) {
+                name[i] = (i < s.length()) ? s.charAt(i) : '\0';
+            }
+        }
+        bool operator==(const LineStop& other) const {return (stopid == other.stopid && name == other.name);}
+    };
+    struct LineStopHasher {
+        std::size_t operator()(const WienerLinienStation::LineStop& ls) const {
+        std::size_t h1 = std::hash<int>{}(ls.stopid);
+        for (char c : ls.name) h1 ^= std::hash<char>{}(c);
+        return h1;
+        }
+    };
     enum VehicleType {
         PTTRAM,
         UNKNOWN,
@@ -24,32 +46,39 @@ public:
         PTBUSCITY,
     };
     struct Departure {
-        String lineName;
         String towards;
         VehicleType type;
-        int stopid;
+        LineStop linestop;
         int countdown;
     };
-
-    std::vector<int> stopidList;
-    std::vector<int> stopidActive;
-    std::vector<int> stopidInactive;
     
 
-    WienerLinienStation(const std::vector<int> stopid) 
-        : stopidList(stopid) {}
+    std::vector<LineStop> linestopList;
+    std::vector<LineStop> linestopActive;
+    std::vector<LineStop> linestopInactive;
+    std::unordered_map<int, String> stopName;      // stopid → human station name
+
+    String getStopName(int id) const {
+        auto it = stopName.find(id);
+        return it != stopName.end() ? it->second : "";
+    }
+    
+
+    WienerLinienStation(const std::vector<LineStop> stopid) 
+        : linestopList(stopid) {}
 
     std::string getQueryUrl() const {
         std::string url = "https://www.wienerlinien.at/ogd_realtime/monitor?";
-        for (size_t i = 0; i < stopidList.size(); ++i) {
-            url += "stopId=" + std::to_string(stopidList[i]);
-            if (i < stopidList.size() - 1) url += "&";
+        for (size_t i = 0; i < linestopList.size(); ++i) {
+            url += "stopId=" + std::to_string(linestopList[i].stopid);
+            if (i < linestopList.size() - 1) url += "&";
         }
         return url;
     }
 
     bool parseResponse(const String& json) {
         JsonDocument filter;
+        filter["data"]["monitors"][0]["locationStop"]["properties"]["attributes"]["rbl"] = true;
         filter["data"]["monitors"][0]["lines"][0]["name"] = true;
         filter["data"]["monitors"][0]["lines"][0]["towards"] = true;
         filter["data"]["monitors"][0]["lines"][0]["type"] = true;
@@ -65,13 +94,14 @@ public:
             return false;
         }
 
-        departures.clear();
+        for(LineStop linestop : linestopList) departures[linestop] = {};
 
         JsonArray monitors = doc["data"]["monitors"];
         for (int i = 0; i < monitors.size(); i++) {
             JsonArray lines = monitors[i]["lines"];
+            int stopid = monitors[i]["locationStop"]["properties"]["attributes"]["rbl"];
             for (JsonObject line : lines) {
-                String lineName = line["name"] | "Unknown";
+                LineStop linestop = LineStop(stopid, String(line["name"]  | "Unknown"));
                 String towards = line["towards"] | "Unknown";
 
                 VehicleType type = UNKNOWN;
@@ -83,17 +113,19 @@ public:
                 }
 
                 JsonArray lineDepartures = line["departures"]["departure"];
+                std::vector<Departure> LineDepartures;
                 for (JsonObject dep : lineDepartures) {
                     Departure d;
-                    d.lineName = lineName;
                     d.towards = towards;
                     d.type = type;
                     d.countdown = dep["departureTime"]["countdown"] | 999;
-
-                    if (i < stopidList.size()) {
-                        d.stopid = stopidList[i];
-                        departures[stopidList[i]].push_back(d);
-                    }
+                    d.linestop = linestop;
+                    Serial.print("LineDepartures: ");
+                    Serial.println(stopid);
+                    Serial.println(linestop.stopid);
+                    Serial.println(linestop.name.data());
+                    auto it = departures.find(linestop);
+                    if(it != departures.end()) it->second.push_back(d);
                 }
             }
         }
@@ -114,54 +146,51 @@ public:
         return departures.size();
     }
 
-    int getCountdown(size_t offset = 0, int stopid = 0) {
-        if (!departures.contains(stopid) || offset >= departures[stopid].size()) return -1;
-        return departures[stopid][offset].countdown;
+    int getCountdown(size_t offset, LineStop linestop) {
+        if (!departures.contains(linestop) || offset >= departures[linestop].size()) return -1;
+        return departures[linestop][offset].countdown;
     }
 
-    VehicleType getType(size_t offset = 0, int stopid = 0) {
-        if (!departures.contains(stopid) || offset >= departures[stopid].size()) return UNKNOWN;
-        return departures[stopid][offset].type;
+    VehicleType getType(size_t offset, LineStop linestop) {
+        if (!departures.contains(linestop) || offset >= departures[linestop].size()) return UNKNOWN;
+        return departures[linestop][offset].type;
     }
 
-    Departure getDeparture(size_t offset = 0, int stopid = 0) {
+    Departure getDeparture(size_t offset, LineStop linestop) {
         Departure d;
-        if (!departures.contains(stopid) || offset >= departures[stopid].size()) return d;
-        return departures[stopid][offset];
+        if (!departures.contains(linestop) || offset >= departures[linestop].size()) return d;
+        return departures[linestop][offset];
     }
 
-    String getTowards(size_t offset = 0, int stopid = 0) {
-        if (!departures.contains(stopid) || offset >= departures.size()) return "";
-        return departures[stopid][offset].towards;
+    String getTowards(size_t offset, LineStop linestop) {
+        if (!departures.contains(linestop) || offset >= departures[linestop].size()) return "";
+        return departures[linestop][offset].towards;
     }
 
-    int set_stopids(std::vector<int> stopids){
-        stopidList = stopids;
+    int set_stopids(std::vector<LineStop> linestop){
+        linestopList = linestop;
         departures.clear();
         return 0;
     }
 
-    std::vector<int> get_stopids() {
-        return stopidList;
-    }
-
     void partition_stopids(){
-        stopidActive.clear();
-        stopidInactive.clear();
-        for(int stopid : stopidList){
-            if(!departures.contains(stopid) || departures[stopid].empty() || getCountdown(0,stopid) == -1) stopidInactive.push_back(stopid);
-            else stopidActive.push_back(stopid);
+        linestopActive.clear();
+        linestopInactive.clear();
+        for(LineStop linestop : linestopList){
+            if(!departures.contains(linestop) || departures[linestop].empty() || getCountdown(0,linestop) == -1) linestopInactive.push_back(linestop);
+            else linestopActive.push_back(linestop);
         }
     }
 
-    std::array<char, DSP800::LENGTH> render_into_system(std::array<const String*, 3> info) {
+    template <std::size_t N>
+    std::array<char, DSP800::LENGTH> render_into_system(std::array<char, N>& name, const String& towards, const String& info) {
         
         std::array<char, DSP800::LENGTH> result;
         result.fill(' ');
         int index = 0;
-        auto [identifier, identifier_length] = DSP800::DSP800::to_length_array_variable(*info[0]);
-        auto [detail, detail_length] = DSP800::DSP800::to_length_array_variable(*info[1]);
-        auto [timing, timing_length] = DSP800::DSP800::to_length_array_variable(*info[2]);
+        auto [identifier, identifier_length] = DSP800::DSP800::to_length_array_variable(name);
+        auto [detail, detail_length] = DSP800::DSP800::to_length_array_variable(towards);
+        auto [timing, timing_length] = DSP800::DSP800::to_length_array_variable(info);
         for(;index<min<int>(identifier_length, DSP800::LENGTH - 1); index++){
             result[index] = identifier[index];
         }
@@ -180,13 +209,15 @@ public:
     int redner_active(int time, std::vector<std::array<char, DSP800::LENGTH>> &dp){
         dp.resize(0);
         partition_stopids();
-        dp.reserve(stopidActive.size()+1);
-        for(int stopid : stopidActive){
-            int current_train = getCountdown(0,stopid);
-            int next_train = getCountdown(1,stopid);
+        dp.reserve(linestopActive.size()+1);
+        for(LineStop linestop : linestopActive){
+
+            int current_train = getCountdown(0, linestop);
+            int next_train = getCountdown(1, linestop);
+
             String info = " ";
             if(current_train == 0){
-                VehicleType vt = getType(0, stopid);
+                VehicleType vt = getType(0, linestop);
                 if(vt == PTTRAM || vt == PTBUSCITY) info.concat((time%2 ==0)? char(220) : char(223));
                 else info.concat(((time/2)%2 ==0)? "* " : " *");
             } else {
@@ -195,7 +226,7 @@ public:
             if(next_train != -1){
                 info.concat(String(char(179)) + next_train);
             }
-            dp.push_back(render_into_system({&departures[stopid][0].lineName, &departures[stopid][0].towards, &info}));
+            dp.push_back(render_into_system(linestop.name, departures[linestop][0].towards, info));
         }
         sort(dp.begin(), dp.end());
         return 0;
@@ -204,11 +235,11 @@ public:
     int redner_inactive(std::vector<std::array<char, DSP800::LENGTH>> &dp, std::array<char, DSP800::LENGTH> ipa) {
         dp.resize(0);
         partition_stopids();
-        dp.reserve(stopidInactive.size()+1);
+        dp.reserve(linestopInactive.size()+1);
         dp.push_back(ipa);
         auto [info, info_length] = DSP800::DSP800::to_length_array_variable(String("Kein Info für:"));
-        for(int stopid : stopidInactive){
-            auto [line, length] = DSP800::DSP800::to_length_array_variable(String(stopid));
+        for(LineStop linestop : linestopInactive){
+            auto [line, length] = DSP800::DSP800::to_length_array_variable(String(linestop.stopid));
             std::copy(line.begin(), line.begin()+length, line.end()-length-1);
             std::copy(info.begin(), info.begin()+info_length, line.begin());
             dp.push_back(line);
@@ -219,10 +250,12 @@ public:
     void debug() {
         Serial.print("Debug: \n");
         for(auto a : departures){
-            Serial.print(a.first);
+            Serial.print(a.first.stopid);
+            Serial.print(" ");
+            Serial.print(String(a.first.name.data()));
             Serial.print("\n\t");
             for(Departure b : a.second){
-                Serial.print(b.lineName.c_str());
+                Serial.print(b.towards.c_str());
                 Serial.print("-");
                 Serial.print(b.countdown);
                 Serial.print(" ");
@@ -233,8 +266,8 @@ public:
 
 
 private:
-    // Stopid to departures
-    std::unordered_map<int, std::vector<Departure>> departures;
+    // LineStop to departures
+    std::unordered_map<LineStop, std::vector<Departure>, LineStopHasher> departures;
 };
 
 #endif

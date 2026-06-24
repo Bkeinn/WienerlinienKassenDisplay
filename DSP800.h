@@ -3,6 +3,15 @@
 #include <string>
 #include <array>
 
+template <typename T, std::size_t N>
+static constexpr std::size_t getLength(const std::array<T, N>&) {
+    return N;
+}
+
+static std::size_t getLength(const String& str) {
+    return str.length();
+}
+
 namespace DSP800 {
     inline constexpr int LENGTH = 20;
     inline constexpr int ROW = 2;
@@ -87,8 +96,9 @@ class DSP800 {
             return 0;
         }
 
-        static char to_character_table(const String& str, int &index){
-            if (str.charAt(index) == 0xC3 && index + 1 < str.length()) {
+        template <typename Container>
+        static char to_character_table(const Container& str, int &index){
+            if ((unsigned char)str[index] == 0xC3 && index + 1 < getLength(str)) {
                     index++;
                     switch ((unsigned char)str[index]) {
                         case 0xBC: return (char)0x7D; // ü
@@ -100,14 +110,16 @@ class DSP800 {
                             return (char)0xC3;
                     }
                 }
-            return str.charAt(index);
+            return str[index];
         }
 
-        static std::pair<std::array<char, LENGTH>, size_t> to_length_array_variable(const String& str) {
+        template <typename Container>
+        static std::pair<std::array<char, LENGTH>, size_t> to_length_array_variable(const Container& str) {
             int count = 0;
             std::array<char, LENGTH> result;
             result.fill(' ');
-            for(int i = 0; i < min<int>(LENGTH, str.length()); i++){ 
+            for(int i = 0; i < min<int>(LENGTH, getLength(str)); i++){
+                if(str[i]=='\0') break; 
                 result[count] = to_character_table(str, i);
                 count++;
             }

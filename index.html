@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Wiener Linien - Stops</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{font-family:sans-serif;max-width:600px;margin:0 auto;padding:16px}
+    h1{font-size:1.4em}
+    h3{font-size:1.1em;margin:16px 0 8px}
+    .stop-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid #eee}
+    .stop-item button{margin-left:auto;background:none;border:1px solid #ccc;border-radius:4px;cursor:pointer;padding:2px 8px;font-size:1em}
+    .stop-item button:hover{background:#fdd;border-color:#c00}
+    .station{display:block;cursor:pointer;padding:6px 10px;margin:3px 0;border:1px solid #ccc;border-radius:4px;background:#fafafa}
+    .station:hover{background:#ddf}
+    .station small{color:#999}
+    .row{display:flex;gap:8px;margin:8px 0;align-items:center}
+    .row input,.row select{flex:1;padding:6px;border:1px solid #ccc;border-radius:4px;font-size:0.95em}
+    .row button{padding:6px 16px;border:1px solid #888;border-radius:4px;background:#eee;cursor:pointer}
+    .row button:hover{background:#ddd}
+    .row button:disabled{opacity:0.5;cursor:default}
+    .hint{font-size:0.8em;color:#999}
+    .empty{color:#999;font-style:italic}
+    #status{margin-top:8px;font-size:0.9em;min-height:1.2em}
+    .error{color:#c00}
+    .success{color:#080}
+    hr{margin:16px 0;border:none;border-top:1px solid #ddd}
+  </style>
+</head>
+<body>
+  <h1>Wiener Linien Stops</h1>
+
+  <h3>Current Stops</h3>
+  <div id="currentStops"><p class="empty">Loading...</p></div>
+
+  <hr>
+
+  <h3>Add Stop by Line</h3>
+  <div class="row">
+    <select id="lineSelect">
+      <option value="">Loading lines...</option>
+    </select>
+    <button id="searchBtn" disabled>Search</button>
+  </div>
+  <div class="row">
+    <input type="text" id="lineInput" placeholder="...or type line code manually (e.g. 302)" style="flex:1">
+    <span class="hint">manual</span>
+  </div>
+  <div id="stationResults"></div>
+
+  <div id="status"></div>
+
+  <script>
+    // ── Load lines from main page ───────────────────────────────
+
+    async function loadLines() {
+      const sel = document.getElementById('lineSelect');
+      try {
+        const res = await fetch('/api/rbl-lines');
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        const lines = await res.json();
+        if(!lines || lines.length === 0) {
+          sel.innerHTML = '<option value="">No lines found</option>';
+          return;
+        }
+        let html = '<option value="">-- Select a line --</option>';
+        for(const l of lines) {
+          html += '<option value="' + l.id + '">' + esc(l.name) + ' (' + l.id + ')</option>';
+        }
+        sel.innerHTML = html;
+      } catch(e) {
+        sel.innerHTML = '<option value="">Failed to load lines</option>';
+      }
+    }
+
+    function onLineSelected() {
+      const sel = document.getElementById('lineSelect');
+      if(!sel.value) return;
+      const opt = sel.options[sel.selectedIndex];
+      const lineName = opt ? opt.text.replace(/\s*\([^)]*\)\s*$/, '').trim() : '';
+      document.getElementById('lineInput').value = sel.value;
+      document.getElementById('lineInput').setAttribute('data-linename', lineName);
+      document.getElementById('searchBtn').disabled = false;
+      searchLine();
+    }
+
+    // ── Load & render stops ─────────────────────────────────────
+
+    async function loadStops() {
+      const el = document.getElementById('currentStops');
+      try {
+        const res = await fetch('/api/stopids');
+        const data = await res.json();
+        const stops = data.stops || [];
+        if(stops.length === 0) {
+          el.innerHTML = '<p class="empty">No stops configured.</p>';
+          return;
+        }
+        let html = '';
+        for(const s of stops) {
+          const showLine = s.lineName || s.line || '';
+          const label = s.name
+            ? (showLine ? showLine + ' \u00b7 ' + s.name : s.name)
+            : ('Stop ' + s.id);
+          html += '<div class="stop-item">' +
+            '<span>' + esc(label) + '</span>' +
+            '<button onclick="deleteStop(' + s.id + ')" title="Remove">\u2715</button>' +
+            '</div>';
+        }
+        el.innerHTML = html;
+      } catch(e) {
+        el.innerHTML = '<p class="error">Failed to load stops</p>';
+      }
+    }
+
+    // ── Delete stop (single API call) ───────────────────────────
+
+    async function deleteStop(id) {
+      const params = new URLSearchParams();
+      params.append('id', id);
+      try {
+        const res = await fetch('/api/delete-stop', {method:'POST', body:params});
+        if(res.ok) {
+          setStatus('Removed', false);
+          await loadStops();
+        } else {
+          const data = await res.json();
+          setStatus('Error: ' + (data.error || 'Failed'), true);
+        }
+      } catch(e) {
+        setStatus('Connection error', true);
+      }
+    }
+
+    // ── Search line -> fetch stations from proxy ────────────────
+
+    async function searchLine() {
+      const line = document.getElementById('lineInput').value.trim();
+      if(!line) return;
+      setStatus('Searching line ' + line + '...');
+      document.getElementById('stationResults').innerHTML = '';
+      try {
+        const res = await fetch('/api/rbl-stations?line=' + encodeURIComponent(line));
+        if(!res.ok) {
+          let msg = 'Search failed (HTTP ' + res.status + ')';
+          try { const e = await res.json(); msg = e.error || msg; } catch(_) {}
+          setStatus(msg, true);
+          return;
+        }
+        const stations = await res.json();
+        renderStations(stations, line);
+        if(stations.length > 0) setStatus('Found ' + stations.length + ' station(s)');
+        else setStatus('No stations found for line ' + line, true);
+      } catch(e) {
+        setStatus('Network error', true);
+      }
+    }
+
+    function renderStations(stations, lineCode) {
+      const el = document.getElementById('stationResults');
+      if(!stations || stations.length === 0) {
+        el.innerHTML = '<p class="empty">No stations returned.</p>';
+        return;
+      }
+      let html = '<h4>Select a station to add:</h4>';
+      for(const s of stations) {
+        const dir = s.direction ? ' \u2192 ' + esc(s.direction) : '';
+        html += '<div class="station" data-id="' + s.id +
+          '" data-name="' + esc(s.name) +
+          '" data-line="' + esc(lineCode) +
+          '" data-dir="' + esc(s.direction || '') + '">' +
+          esc(s.name) + dir + ' <small>[' + s.id + ']</small></div>';
+      }
+      el.innerHTML = html;
+    }
+
+    // ── Add stop: resolve RBL/StopId + save in ONE call ─────────
+
+    async function addStop(e) {
+      const div = e.target.closest('.station');
+      if(!div) return;
+      const stationId = div.dataset.id;
+      const name      = div.dataset.name;
+      const line      = div.dataset.line;
+      const dir       = div.dataset.dir || '';
+      const lineName  = document.getElementById('lineInput').getAttribute('data-linename') || line;
+
+      setStatus('Adding stop...');
+      const params = new URLSearchParams();
+      params.append('line',     line);
+      params.append('station',  stationId);
+      params.append('name',     name);
+      params.append('dir',      dir);
+      params.append('linename', lineName);
+
+      try {
+        const res = await fetch('/api/add-stop', {method:'POST', body:params});
+        const data = await res.json();
+        if(res.ok) {
+          document.getElementById('stationResults').innerHTML = '';
+          setStatus('Added (stop ' + data.stopid + ')', false);
+          await loadStops();
+        } else {
+          setStatus('Error: ' + (data.error || 'Failed'), true);
+        }
+      } catch(e) {
+        setStatus('Network error', true);
+      }
+    }
+
+    // ── Status display ──────────────────────────────────────────
+
+    function setStatus(msg, isError) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = isError ? 'error' : 'success';
+      if(!isError) {
+        clearTimeout(el._timer);
+        el._timer = setTimeout(function(){ el.textContent = ''; }, 3000);
+      }
+    }
+
+    function esc(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Event binding ───────────────────────────────────────────
+
+    document.getElementById('lineSelect').addEventListener('change', onLineSelected);
+    document.getElementById('searchBtn').addEventListener('click', searchLine);
+    document.getElementById('lineInput').addEventListener('keypress', function(e) {
+      if(e.key === 'Enter') searchLine();
+    });
+    document.getElementById('lineInput').addEventListener('input', function() {
+      document.getElementById('searchBtn').disabled = !this.value.trim();
+    });
+    document.getElementById('stationResults').addEventListener('click', addStop);
+    document.getElementById('stationResults').addEventListener('touchend', addStop);
+
+    // ── Start ───────────────────────────────────────────────────
+
+    loadStops();
+    loadLines();
+  </script>
+</body>
+</html>

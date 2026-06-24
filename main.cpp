@@ -17,8 +17,7 @@ bool lastGreenState = LOW;
 bool lastRedState = LOW;
 
 DSP800::DSP800 DSP(Serial1);
-WienerLinienStation Zip({4940, 4430, 4264});
-//WienerLinienStation Zip({4940});
+WienerLinienStation Zip({WienerLinienStation::LineStop(4940, String("U3")), WienerLinienStation::LineStop(4430, String("U4")), WienerLinienStation::LineStop(4264, String("U2"))});
 std::pair<uint32_t,uint32_t> star_flip = {0,0};
 std::mutex mutex;
 std::vector<std::array<char, DSP800::LENGTH>> dp;
@@ -75,11 +74,27 @@ void setup() {
   }
 
   server.on("/", HTTP_GET, []() {
-    handleRoot(server, Zip.stopidList);
+    handleRoot(server);
   });
 
-  server.on("/submit", HTTP_POST, []() {
-    handleSubmit(server, Zip.stopidList);
+  server.on("/api/rbl-lines", HTTP_GET, []() {
+    handleApiRblLines(server);
+  });
+
+  server.on("/api/rbl-stations", HTTP_GET, []() {
+    handleApiRblStations(server);
+  });
+
+  server.on("/api/stopids", HTTP_GET, []() {
+    handleApiGetStopids(server, Zip);
+  });
+
+  server.on("/api/add-stop", HTTP_POST, []() {
+    handleApiAddStop(server, Zip);
+  });
+
+  server.on("/api/delete-stop", HTTP_POST, []() {
+    handleApiDeleteStop(server, Zip);
   });
 
   server.begin();
@@ -139,5 +154,6 @@ void loop() {
     star_flip.second = star_flip.first;
   }
 
+  //Zip.debug();
   delay(50);
 }
