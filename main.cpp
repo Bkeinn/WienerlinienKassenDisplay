@@ -10,14 +10,17 @@
 #include <mutex>
 #include <sstream>
 #include <WebServer.h>
+#include "Sound.h"
 
 #define GreenButton 22
 bool lastGreenState = LOW;
 #define RedButton 23
 bool lastRedState = LOW;
 
+#define Buzzer_port 13
+
 DSP800::DSP800 DSP(Serial1);
-WienerLinienStation Zip({WienerLinienStation::LineStop(4940, String("U3")), WienerLinienStation::LineStop(4430, String("U4")), WienerLinienStation::LineStop(4264, String("U2"))});
+WienerLinienStation Zip({});
 std::pair<uint32_t,uint32_t> star_flip = {0,0};
 std::mutex mutex;
 std::vector<std::array<char, DSP800::LENGTH>> dp;
@@ -25,6 +28,8 @@ WebServer server(80);
 TaskHandle_t FetchTaskHandle = NULL;
 std::pair<bool, bool> configuration_mode = {false,false};
 unsigned long last_update = millis();
+
+Buzzer buzzer = Buzzer(Buzzer_port);
 
 int get_num_length(int n){
   if(n==0) return 1;
@@ -42,7 +47,8 @@ void fetchData(void * paramter) {
   http.setTimeout(10000);
   
   while(true){
-    http.begin(Zip.getQueryUrl().c_str());
+    // Build URL under mutex to avoid race with handlers modifying linestopList
+    { std::lock_guard<std::mutex> lock(mutex); http.begin(Zip.getQueryUrl().c_str()); }
     int httpCode = http.GET();
     if(httpCode != HTTP_CODE_OK){
       Serial.println(httpCode);
@@ -66,12 +72,23 @@ void setup() {
   pinMode(GreenButton, INPUT_PULLDOWN);
   pinMode(RedButton, INPUT_PULLDOWN);
 
+  pinMode(Buzzer_port, OUTPUT);
+
   WiFi.begin("Science Pool Lidl", "Moebia31415");
 
   while (WiFi.status() != WL_CONNECTED) {
     DSP.print(String('.'));
     delay(300);
   }
+
+  Serial.println(EEPROMWIENERLINIEN::read().size());
+  for(auto &linestop : EEPROMWIENERLINIEN::read()){
+    Zip.linestopList.push_back(WienerLinienStation::LineStop(linestop));
+    for(auto a : linestop) Serial.print(a);
+    Serial.println("");
+  }
+  // Load persisted station names so the web UI shows names immediately after boot
+  Zip.loadStationNamesFromEeprom();
 
   server.on("/", HTTP_GET, []() {
     handleRoot(server);
@@ -85,16 +102,24 @@ void setup() {
     handleApiRblStations(server);
   });
 
-  server.on("/api/stopids", HTTP_GET, []() {
+  server.on("/api/stopids", HTTP_GET, [&mutex]() {
+    std::lock_guard<std::mutex> lock(mutex);
     handleApiGetStopids(server, Zip);
   });
 
-  server.on("/api/add-stop", HTTP_POST, []() {
+  server.on("/api/add-stop", HTTP_POST, [&mutex]() {
+    std::lock_guard<std::mutex> lock(mutex);
     handleApiAddStop(server, Zip);
   });
 
-  server.on("/api/delete-stop", HTTP_POST, []() {
+  server.on("/api/delete-stop", HTTP_POST, [&mutex]() {
+    std::lock_guard<std::mutex> lock(mutex);
     handleApiDeleteStop(server, Zip);
+  });
+
+  server.on("/api/delete-all", HTTP_POST, [&mutex]() {
+    std::lock_guard<std::mutex> lock(mutex);
+    handleApiDeleteAllStop(server, Zip);
   });
 
   server.begin();
@@ -118,6 +143,7 @@ void setup() {
 }
 
 void loop() {
+
   server.handleClient();
   if(!configuration_mode.first) {
     
@@ -137,7 +163,7 @@ void loop() {
 
   lastGreenState = digitalRead(GreenButton); 
 
-  if (digitalRead(RedButton) && !lastRedState) star_flip.first += 10;
+  if (digitalRead(RedButton) && !lastRedState) star_flip = {star_flip.first+10, star_flip.second+10};
   lastRedState = digitalRead(RedButton);
 
   if(millis() - last_update >= 1'000) {star_flip.first++; last_update = millis();};
@@ -149,6 +175,7 @@ void loop() {
       if((star_flip.first/10) != ((star_flip.first-1)/10)) DSP.clear();
       DSP.update(dp[(star_flip.first/10)%dp.size()]);
       DSP.update(dp[(1+(star_flip.first/10))%dp.size()]); 
+      //buzzer.blink();
     }
     configuration_mode.second = configuration_mode.first;
     star_flip.second = star_flip.first;

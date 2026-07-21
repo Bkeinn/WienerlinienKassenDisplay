@@ -10,6 +10,7 @@
 #include <math.h>
 #include <utility>
 #include "DSP800.h"
+#include "EEPROM.h"
 
 #include "ArduinoJson-v7.4.3.h"
 
@@ -31,6 +32,24 @@ public:
             }
         }
         bool operator==(const LineStop& other) const {return (stopid == other.stopid && name == other.name);}
+
+        std::array<byte, 11> save() {
+            std::array<byte, 11> save_array;
+            for(int i = 0; i < 4; i++) save_array[i] = (stopid >> (24 - i * 8)) & 0xFF;
+            for(int i = 0; i < 4; i++) save_array[i+4] = (linecode >> (24 - i * 8)) & 0xFF;
+            for(int i = 0;i<name.size();i++) save_array[8+i] = name[i];
+            return save_array;
+        }
+
+        LineStop(std::array<byte, 11> save){
+            stopid = 0;
+            for(int i = 0; i < 4; i++) stopid = (stopid << 8) | save[i];
+            linecode = 0;
+            for(int i =0;i<4;i++) linecode = (linecode << 8) | save[i+4];
+            for(int i=0;i<3;i++){
+                name[i] = save[8+i];
+            }
+        }
     };
     struct LineStopHasher {
         std::size_t operator()(const WienerLinienStation::LineStop& ls) const {
@@ -62,7 +81,14 @@ public:
         auto it = stopName.find(id);
         return it != stopName.end() ? it->second : "";
     }
-    
+
+    // Load persisted station names from EEPROM into the stopName map
+    void loadStationNamesFromEeprom() {
+        auto names = EEPROMWIENERLINIEN::loadAllStationNames();
+        for (auto& pair : names) {
+            stopName[pair.first] = pair.second;
+        }
+    }
 
     WienerLinienStation(const std::vector<LineStop> stopid) 
         : linestopList(stopid) {}
@@ -79,6 +105,7 @@ public:
     bool parseResponse(const String& json) {
         JsonDocument filter;
         filter["data"]["monitors"][0]["locationStop"]["properties"]["attributes"]["rbl"] = true;
+        filter["data"]["monitors"][0]["locationStop"]["properties"]["title"] = true;
         filter["data"]["monitors"][0]["lines"][0]["name"] = true;
         filter["data"]["monitors"][0]["lines"][0]["towards"] = true;
         filter["data"]["monitors"][0]["lines"][0]["type"] = true;
@@ -100,6 +127,13 @@ public:
         for (int i = 0; i < monitors.size(); i++) {
             JsonArray lines = monitors[i]["lines"];
             int stopid = monitors[i]["locationStop"]["properties"]["attributes"]["rbl"];
+
+            // Extract station name from API response and store it
+            String stationTitle = monitors[i]["locationStop"]["properties"]["title"] | "";
+            if(stationTitle.length() > 0) {
+                stopName[stopid] = stationTitle;
+            }
+
             for (JsonObject line : lines) {
                 LineStop linestop = LineStop(stopid, String(line["name"]  | "Unknown"));
                 String towards = line["towards"] | "Unknown";
@@ -120,10 +154,6 @@ public:
                     d.type = type;
                     d.countdown = dep["departureTime"]["countdown"] | 999;
                     d.linestop = linestop;
-                    Serial.print("LineDepartures: ");
-                    Serial.println(stopid);
-                    Serial.println(linestop.stopid);
-                    Serial.println(linestop.name.data());
                     auto it = departures.find(linestop);
                     if(it != departures.end()) it->second.push_back(d);
                 }
@@ -165,6 +195,10 @@ public:
     String getTowards(size_t offset, LineStop linestop) {
         if (!departures.contains(linestop) || offset >= departures[linestop].size()) return "";
         return departures[linestop][offset].towards;
+    }
+
+    void clearDepartures() {
+        departures.clear();
     }
 
     int set_stopids(std::vector<LineStop> linestop){

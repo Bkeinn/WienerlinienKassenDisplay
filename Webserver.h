@@ -6,6 +6,7 @@
 #include <vector>
 #include <unordered_map>
 
+#include "EEPROM.h"
 #include "ArduinoJson-v7.4.3.h"
 #include "Wienerlinen.cpp"
 
@@ -73,6 +74,8 @@ String getIndexHTML() {
     .error{color:#c00}
     .success{color:#080}
     hr{margin:16px 0;border:none;border-top:1px solid #ddd}
+    #deleteAllBtn{padding:6px 12px;background:#fff;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:0.9em}
+    #deleteAllBtn:hover{background:#fdd;border-color:#c00}
   </style>
 </head>
 <body>
@@ -80,6 +83,9 @@ String getIndexHTML() {
 
   <h3>Current Stops</h3>
   <div id="currentStops"><p class="empty">Loading...</p></div>
+  <div style="margin-top: 8px; text-align: right;">
+    <button id="deleteAllBtn">Delete All</button>
+  </div>
 
   <hr>
 
@@ -174,6 +180,24 @@ String getIndexHTML() {
         } else {
           const data = await res.json();
           setStatus('Error: ' + (data.error || 'Failed'), true);
+        }
+      } catch(e) {
+        setStatus('Connection error', true);
+      }
+    }
+
+    // ── Delete all stops ────────────────────────────────────────
+
+    async function deleteAllStops() {
+      if (!confirm('Are you sure you want to delete all stops?')) return;
+      setStatus('Deleting all stops...');
+      try {
+        const res = await fetch('/api/delete-all', { method: 'POST' });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          setStatus('Error: ' + (data.error || 'Failed to delete all'), true);
         }
       } catch(e) {
         setStatus('Connection error', true);
@@ -284,6 +308,7 @@ String getIndexHTML() {
     });
     document.getElementById('stationResults').addEventListener('click', addStop);
     document.getElementById('stationResults').addEventListener('touchend', addStop);
+    document.getElementById('deleteAllBtn').addEventListener('click', deleteAllStops);
 
     // ── Start ───────────────────────────────────────────────────
 
@@ -292,7 +317,6 @@ String getIndexHTML() {
   </script>
 </body>
 </html>
-
 )rawliteral";
 }
 // --- EMBEDDED_HTML_END ---
@@ -502,9 +526,13 @@ void handleApiAddStop(WebServer &server, WienerLinienStation &station) {
         return;
     }
 
-    // Check if already in list (same stopid)
-    for(auto& ls : station.linestopList) {
-        if(ls.stopid == stopid) {
+    // Build LineStop
+    WienerLinienStation::LineStop ls;
+    ls.stopid = stopid;
+    ls.linecode = fastParseInt(lineParam.c_str(), lineParam.length());
+
+    for(auto& saved_ls : station.linestopList) {
+        if(ls.stopid == saved_ls.stopid && ls.linecode == saved_ls.linecode){
             String resp = "{\"status\":\"ok\",\"stopid\":";
             resp += stopid;
             resp += ",\"duplicate\":true}";
@@ -513,19 +541,19 @@ void handleApiAddStop(WebServer &server, WienerLinienStation &station) {
         }
     }
 
-    // Build LineStop
-    WienerLinienStation::LineStop ls;
-    ls.stopid = stopid;
-    ls.linecode = fastParseInt(lineParam.c_str(), lineParam.length());
+
     // Copy up to 3 chars of line name into ls.name
     size_t n = (lineName.length() < 3) ? lineName.length() : 3;
     for(size_t i = 0; i < 3; i++)
         ls.name[i] = (i < n) ? lineName[i] : '\0';
 
-    // Store human-readable station name
-    if(stationName.length() > 0)
+    // Store human-readable station name (in-memory + EEPROM)
+    if(stationName.length() > 0) {
         station.stopName[stopid] = stationName;
+        EEPROMWIENERLINIEN::saveStationName(stopid, stationName);
+    }
 
+    EEPROMWIENERLINIEN::add(ls.save());
     station.linestopList.push_back(ls);
 
     String resp = "{\"status\":\"ok\",\"stopid\":";
@@ -547,12 +575,26 @@ void handleApiDeleteStop(WebServer &server, WienerLinienStation &station) {
     auto& vec = station.linestopList;
     for(auto it = vec.begin(); it != vec.end(); ++it) {
         if(it->stopid == id) {
+            // Persist removal: need save data before erasing iterator
+            auto saveData = it->save();
+            EEPROMWIENERLINIEN::remove(saveData);
+            EEPROMWIENERLINIEN::removeStationName(id);
             vec.erase(it);
             server.send(200, "application/json", "{\"status\":\"ok\"}");
             return;
         }
     }
     server.send(404, "application/json", "{\"error\":\"Stop not found\"}");
+}
+
+void handleApiDeleteAllStop(WebServer &server, WienerLinienStation &station) {
+  EEPROMWIENERLINIEN::clear();
+  EEPROMWIENERLINIEN::clearStationNames();
+  station.linestopList.clear();
+  station.stopName.clear();
+  // Clear departures cache to match empty stop list
+  station.clearDepartures();
+  server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
 // ── API: GET /api/stopids → current stop list as JSON ────────────
