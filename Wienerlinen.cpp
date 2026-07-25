@@ -76,6 +76,7 @@ public:
     std::vector<LineStop> linestopActive;
     std::vector<LineStop> linestopInactive;
     std::unordered_map<int, String> stopName;      // stopid → human station name
+    int fetchVersion = 0;  // incremented on each successful parseResponse
 
     String getStopName(int id) const {
         auto it = stopName.find(id);
@@ -169,6 +170,7 @@ public:
             );
         }
 
+        fetchVersion++;
         return true;
     }
 
@@ -176,25 +178,28 @@ public:
         return departures.size();
     }
 
-    int getCountdown(size_t offset, LineStop linestop) {
-        if (!departures.contains(linestop) || offset >= departures[linestop].size()) return -1;
-        return departures[linestop][offset].countdown;
+    int getCountdown(size_t offset, const LineStop& linestop) const {
+        auto it = departures.find(linestop);
+        if (it == departures.end() || offset >= it->second.size()) return -1;
+        return it->second[offset].countdown;
     }
 
-    VehicleType getType(size_t offset, LineStop linestop) {
-        if (!departures.contains(linestop) || offset >= departures[linestop].size()) return UNKNOWN;
-        return departures[linestop][offset].type;
+    VehicleType getType(size_t offset, const LineStop& linestop) const {
+        auto it = departures.find(linestop);
+        if (it == departures.end() || offset >= it->second.size()) return UNKNOWN;
+        return it->second[offset].type;
     }
 
-    Departure getDeparture(size_t offset, LineStop linestop) {
-        Departure d;
-        if (!departures.contains(linestop) || offset >= departures[linestop].size()) return d;
-        return departures[linestop][offset];
+    Departure getDeparture(size_t offset, const LineStop& linestop) const {
+        auto it = departures.find(linestop);
+        if (it == departures.end() || offset >= it->second.size()) return Departure{};
+        return it->second[offset];
     }
 
-    String getTowards(size_t offset, LineStop linestop) {
-        if (!departures.contains(linestop) || offset >= departures[linestop].size()) return "";
-        return departures[linestop][offset].towards;
+    String getTowards(size_t offset, const LineStop& linestop) const {
+        auto it = departures.find(linestop);
+        if (it == departures.end() || offset >= it->second.size()) return "";
+        return it->second[offset].towards;
     }
 
     void clearDepartures() {
@@ -211,7 +216,8 @@ public:
         linestopActive.clear();
         linestopInactive.clear();
         for(LineStop linestop : linestopList){
-            if(!departures.contains(linestop) || departures[linestop].empty() || getCountdown(0,linestop) == -1) linestopInactive.push_back(linestop);
+            auto it = departures.find(linestop);
+            if(it == departures.end() || it->second.empty() || getCountdown(0,linestop) == -1)  linestopInactive.push_back(linestop);
             else linestopActive.push_back(linestop);
         }
     }

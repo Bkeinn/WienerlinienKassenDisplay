@@ -158,4 +158,78 @@ namespace EEPROMWIENERLINIEN {
         names.erase(stopid);
         writeAllStationNames(names);
     }
+
+    // ── WiFi credential persistence ───────────────────────────────
+
+    inline String loadWiFiSSID() {
+        Preferences prefs;
+        prefs.begin("wiener_ln", true);
+        String s = prefs.getString("wifi_ssid", "");
+        prefs.end();
+        return s;
+    }
+
+    inline String loadWiFiPassword() {
+        Preferences prefs;
+        prefs.begin("wiener_ln", true);
+        String s = prefs.getString("wifi_pass", "");
+        prefs.end();
+        return s;
+    }
+
+    inline bool saveWiFiCredentials(const String& ssid, const String& password) {
+        Preferences prefs;
+        if (!prefs.begin("wiener_ln", false)) return false;
+        prefs.putString("wifi_ssid", ssid);
+        prefs.putString("wifi_pass", password);
+        // Set a flag so we know WiFi has been configured
+        prefs.putBool("wifi_cfg", true);
+        prefs.end();
+        return true;
+    }
+
+    inline bool isWiFiConfigured() {
+        Preferences prefs;
+        prefs.begin("wiener_ln", true);
+        bool cfg = prefs.getBool("wifi_cfg", false);
+        prefs.end();
+        return cfg;
+    }
+
+    inline void clearWiFiCredentials() {
+        Preferences prefs;
+        if (!prefs.begin("wiener_ln", false)) return;
+        prefs.remove("wifi_ssid");
+        prefs.remove("wifi_pass");
+        prefs.remove("wifi_cfg");
+        prefs.end();
+    }
+
+    // ── Alert rule persistence ────────────────────────────────────
+    //
+    // Stored as JSON string under key "alerts".
+    // Structure: [{"stopid":NNN,"rules":[{...},...]}, ...]
+    // Each rule: {"wd":BITMASK,"sh":H,"sm":M,"eh":H,"em":M,"mb":MIN}
+    //   wd  = weekday bitmask (1<<0=Mon ... 1<<6=Sun)
+    //   sh  = start hour (0-23)
+    //   sm  = start minute (0-59)
+    //   eh  = end hour (0-23)
+    //   em  = end minute (0-59)
+    //   mb  = minutes before departure to beep
+
+    inline String loadAlertsJSON() {
+        Preferences prefs;
+        prefs.begin("wiener_ln", true);
+        String s = prefs.getString("alerts", "[]");
+        prefs.end();
+        return s;
+    }
+
+    inline bool saveAlertsJSON(const String& json) {
+        Preferences prefs;
+        if (!prefs.begin("wiener_ln", false)) return false;
+        prefs.putString("alerts", json);
+        prefs.end();
+        return true;
+    }
 };
